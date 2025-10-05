@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Sequence, Set, Tuple
+from typing import Optional, Tuple
 
 from .markdown import (
     format_front_matter,
     parse_front_matter,
     sanitise_filename,
-    serialise_highlight,
+    _format_location_text,
 )
 from .models import Highlight
 
@@ -34,57 +34,58 @@ class BookFile:
         self.path.write_text(content, encoding="utf-8")
 
 
-def build_book_filename(vault_root: Path, subdir: str, title: str) -> Path:
+def build_book_filename(
+    vault_root: Path,
+    subdir: str,
+    title: str,
+    highlight: Optional[Highlight] = None,
+) -> Path:
     safe_title = sanitise_filename(title)
-    relative = Path(subdir) / f"{safe_title}.md"
-    return vault_root / relative
+    relative = Path(subdir)
 
+    if highlight is None:
+        filename = f"{safe_title}.md"
+    else:
+        location_fragment = sanitise_filename(highlight.location or "Location unknown") or "Location unknown"
+        identifier_fragment = highlight.highlight_id[:12]
+        filename = f"{safe_title} - {location_fragment} - {identifier_fragment}.md"
 
-def merge_highlights(existing_ids: Set[str], highlights: Sequence[Highlight]) -> List[Highlight]:
-    return [h for h in highlights if h.highlight_id not in existing_ids]
+    return vault_root / relative / filename
 
 
 def append_highlights_to_file(
-    book_file: BookFile, highlights: Sequence[Highlight], heading_template: str = "Location {location}"
+    book_file: BookFile,
+    highlight: Highlight,
+    heading_template: str = "Location {location}",
 ) -> Tuple[int, int]:
     # ``heading_template`` is retained for API compatibility but no longer used for rendering.
     _ = heading_template
-    metadata, existing_body = book_file.read()
-    existing_ids_list: List[str] = []
-    existing_highlight_entries: List[dict] = []
+
+    metadata, _ = book_file.read()
+    existing_id: Optional[str] = None
     if metadata:
-        ids = metadata.get("highlight_ids")
-        if isinstance(ids, list):
-            existing_ids_list = [str(value) for value in ids]
-        highlights_meta = metadata.get("highlights")
-        if isinstance(highlights_meta, list):
-            existing_highlight_entries = list(highlights_meta)
-            if not existing_ids_list:
-                for entry in existing_highlight_entries:
-                    highlight_id = entry.get("highlight_id")
-                    if highlight_id is not None:
-                        existing_ids_list.append(str(highlight_id))
-    existing_ids: Set[str] = set(existing_ids_list)
+        ids_value = metadata.get("highlight_ids")
+        if isinstance(ids_value, list):
+            existing_id = ids_value[0] if ids_value else None
+        elif ids_value is not None:
+            existing_id = str(ids_value)
 
-    new_highlights = merge_highlights(existing_ids, highlights)
-    if not new_highlights:
-        return 0, len(existing_ids)
+    if (
+        existing_id == highlight.highlight_id
+        and metadata.get("highlights") == highlight.text
+        and metadata.get("location_text") == _format_location_text(highlight.location)
+    ):
+        return 0, 1
 
-    updated_ids = existing_ids_list + [h.highlight_id for h in new_highlights]
-    updated_ids = list(dict.fromkeys(updated_ids))
+    new_metadata = {
+        "title": book_file.title,
+        "author": book_file.author or "Unknown",
+        "highlight_ids": highlight.highlight_id,
+        "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "highlights": highlight.text,
+        "location_text": _format_location_text(highlight.location),
+    }
 
-    metadata = dict(metadata)
-    metadata.update(
-        {
-            "title": metadata.get("title") or book_file.title,
-            "author": metadata.get("author") or (book_file.author or "Unknown"),
-            "highlight_ids": updated_ids,
-            "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        }
-    )
-
-    serialized_highlights = [serialise_highlight(h) for h in new_highlights]
-    metadata["highlights"] = existing_highlight_entries + serialized_highlights
-
-    book_file.write(metadata, existing_body)
-    return len(new_highlights), len(updated_ids)
+    book_file.write(new_metadata, "")
+    added = 0 if existing_id == highlight.highlight_id else 1
+    return added, 1
