@@ -8,13 +8,8 @@ from typing import Iterable, List
 
 from highlights.config import SyncConfig, load_config
 from highlights.models import Highlight
-from highlights.parsers import KindleCsvParser, MyClippingsParser, group_by_book
-from highlights.storage import (
-    BookFile,
-    append_highlights_to_file,
-    build_book_filename,
-    merge_highlights,
-)
+from highlights.parsers import KindleCsvParser, MyClippingsParser
+from highlights.storage import BookFile, append_highlights_to_file, build_book_filename
 
 
 def _parse_args(argv: Iterable[str]) -> argparse.Namespace:
@@ -88,35 +83,37 @@ def main(argv: Iterable[str] | None = None) -> int:
         print("No highlights found in the provided sources.")
         return 1
 
-    book_groups = list(group_by_book(highlights))
     total_new = 0
 
     if args.list_only or config.dry_run:
-        print(f"Found {len(highlights)} highlights across {len(book_groups)} books.")
+        print(f"Found {len(highlights)} highlight(s).")
 
-    for title, author, book_highlights in book_groups:
-        book_path = build_book_filename(config.vault_root, config.vault_subdir, title)
-        book_file = BookFile(book_path, title, author)
+    for highlight in highlights:
+        book_path = build_book_filename(
+            config.vault_root, config.vault_subdir, highlight.book_title, highlight
+        )
+        book_file = BookFile(book_path, highlight.book_title, highlight.author)
 
         if args.list_only or config.dry_run:
             metadata, _ = book_file.read()
-            existing_ids = set()
+            existing_id = None
             if metadata:
-                ids = metadata.get("highlight_ids")
-                if isinstance(ids, list):
-                    existing_ids = {str(value) for value in ids}
-            new_items = merge_highlights(existing_ids, book_highlights)
-            print(
-                f"[DRY-RUN] Would update {book_path} with {len(new_items)} new highlight(s) ("
-                f"{len(book_highlights)} parsed)."
-            )
+                ids_value = metadata.get("highlight_ids")
+                if isinstance(ids_value, list):
+                    existing_id = ids_value[0] if ids_value else None
+                elif ids_value is not None:
+                    existing_id = str(ids_value)
+            is_new = existing_id != highlight.highlight_id
+            action = "create" if is_new or not book_file.path.exists() else "update"
+            print(f"[DRY-RUN] Would {action} {book_path}")
             continue
 
-        added, total = append_highlights_to_file(
-            book_file, book_highlights, heading_template=config.highlight_heading_template
+        added, _ = append_highlights_to_file(
+            book_file, highlight, heading_template=config.highlight_heading_template
         )
         total_new += added
-        print(f"Updated {book_path} (+{added} new / {total} total).")
+        status = "Created" if added else "Updated"
+        print(f"{status} {book_path}.")
 
     if not (args.list_only or config.dry_run):
         print(f"Sync complete: {total_new} new highlights added.")
