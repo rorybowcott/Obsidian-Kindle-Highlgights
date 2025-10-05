@@ -67,14 +67,14 @@ class HighlightSyncApp:
             return {}
         return raw
 
-    def _save_config(self) -> None:
+    def _save_config(self, state: AppState) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         data = {
-            "vault_root": str(self.state.vault_root),
-            "vault_subdir": self.state.vault_subdir,
+            "vault_root": str(state.vault_root),
+            "vault_subdir": state.vault_subdir,
         }
-        if self.state.clippings_path:
-            data["clippings_path"] = str(self.state.clippings_path)
+        if state.clippings_path:
+            data["clippings_path"] = str(state.clippings_path)
         with CONFIG_FILE.open("w", encoding="utf-8") as handle:
             json.dump(data, handle, indent=2)
 
@@ -104,7 +104,7 @@ class HighlightSyncApp:
                 clippings_path = candidate
 
         state = AppState(vault_root=vault_path, vault_subdir=vault_subdir, clippings_path=clippings_path)
-        self._save_config()
+        self._save_config(state)
         return state
 
     def _prompt_for_vault(self) -> Path:
@@ -211,7 +211,7 @@ class HighlightSyncApp:
         if selected:
             self.state.vault_root = Path(selected)
             self._vault_var.set(str(self.state.vault_root))
-            self._save_config()
+            self._save_config(self.state)
 
     def _update_subdir(self) -> None:
         value = self._subdir_var.get().strip()
@@ -220,7 +220,7 @@ class HighlightSyncApp:
             self._subdir_var.set(self.state.vault_subdir)
             return
         self.state.vault_subdir = value
-        self._save_config()
+        self._save_config(self.state)
 
     def _choose_clippings(self) -> None:
         selected = filedialog.askopenfilename(
@@ -236,7 +236,7 @@ class HighlightSyncApp:
             return
         self.state.clippings_path = path
         self._clippings_var.set(self._format_path(path))
-        self._save_config()
+        self._save_config(self.state)
         self._log(f"Clippings file set to {path}.")
 
     def _run_sync(self) -> None:
