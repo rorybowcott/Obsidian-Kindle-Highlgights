@@ -36,9 +36,41 @@ def test_append_highlights_deduplicates(tmp_path: Path) -> None:
     metadata, body = book_file.read()
     assert isinstance(metadata.get("highlights"), list)
     assert len(metadata["highlights"]) == 2
-    stored_ids = {entry["highlight_id"] for entry in metadata["highlights"]}
-    assert stored_ids == {first_highlight.highlight_id, second_highlight.highlight_id}
+
+    assert metadata["highlight_ids"] == [
+        first_highlight.highlight_id,
+        second_highlight.highlight_id,
+    ]
+
+    first_entry, second_entry = metadata["highlights"]
+    assert first_entry == {
+        "text": first_highlight.text,
+        "location_text": "Location 120-122",
+    }
+    assert second_entry == {
+        "text": second_highlight.text,
+        "location_text": "Location 200-201",
+    }
+    assert "note" not in first_entry
+    assert "note" not in second_entry
     assert body.strip() == ""
+
+
+def test_append_highlights_handles_missing_location(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    book_path = build_book_filename(vault, "Kindle Highlights", "The Example Book")
+    book_file = BookFile(book_path, "The Example Book", "Jane Doe")
+
+    highlight = make_highlight(location=None, text="No location highlight")
+
+    added, total = append_highlights_to_file(book_file, [highlight])
+    assert added == 1
+    assert total == 1
+
+    metadata, _ = book_file.read()
+    assert metadata["highlights"] == [
+        {"text": "No location highlight", "location_text": "Location unknown"}
+    ]
 
 
 def test_build_book_filename_preserves_spaces(tmp_path: Path) -> None:
