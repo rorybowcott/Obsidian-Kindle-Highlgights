@@ -26,7 +26,23 @@ pip install -e .
 
 ## Usage
 
-The entry point lives in `src/sync_highlights.py` and can be executed with Python:
+### Graphical interface
+
+Launch the Tkinter-based interface to configure your vault location and drag-and-drop
+your `My Clippings.txt` file:
+
+```bash
+python -m highlights.gui
+```
+
+On first launch you will be prompted to choose your Obsidian vault and the folder
+inside the vault where highlight files should be stored. You can then drag and drop
+your `My Clippings.txt` export (or use the *Browse* button) and trigger the sync
+directly from the app.
+
+### Command line
+
+The command line entry point lives in `src/sync_highlights.py` and can be executed with Python:
 
 ```bash
 python -m sync_highlights --clippings "~/Documents/My Clippings.txt" --vault "/path/to/Obsidian" --dry-run
