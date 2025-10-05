@@ -26,7 +26,11 @@ class AppState:
 
     vault_root: Path
     vault_subdir: str
+    mode: str = "clippings"
     clippings_path: Optional[Path] = None
+    kindle_cloud_email: str = ""
+    kindle_cloud_region: str = "us"
+    kindle_cloud_cookie: Optional[Path] = None
 
 
 class HighlightSyncApp:
@@ -42,9 +46,15 @@ class HighlightSyncApp:
         self._config_data = self._load_config()
         self.state = self._initialise_state()
 
+        self._mode_var = tk.StringVar(value=self.state.mode)
         self._vault_var = tk.StringVar(value=str(self.state.vault_root))
         self._subdir_var = tk.StringVar(value=self.state.vault_subdir)
         self._clippings_var = tk.StringVar(value=self._format_path(self.state.clippings_path))
+        self._kindle_email_var = tk.StringVar(value=self.state.kindle_cloud_email)
+        self._kindle_region_var = tk.StringVar(value=self.state.kindle_cloud_region)
+        self._kindle_cookie_var = tk.StringVar(
+            value=self._format_path(self.state.kindle_cloud_cookie)
+        )
 
         self._build_ui()
         self._update_drag_hint()
@@ -72,9 +82,15 @@ class HighlightSyncApp:
         data = {
             "vault_root": str(state.vault_root),
             "vault_subdir": state.vault_subdir,
+            "mode": state.mode,
         }
         if state.clippings_path:
             data["clippings_path"] = str(state.clippings_path)
+        if state.kindle_cloud_email:
+            data["kindle_cloud_email"] = state.kindle_cloud_email
+        data["kindle_cloud_region"] = state.kindle_cloud_region
+        if state.kindle_cloud_cookie:
+            data["kindle_cloud_cookie"] = str(state.kindle_cloud_cookie)
         with CONFIG_FILE.open("w", encoding="utf-8") as handle:
             json.dump(data, handle, indent=2)
 
@@ -103,7 +119,26 @@ class HighlightSyncApp:
             if candidate.exists():
                 clippings_path = candidate
 
-        state = AppState(vault_root=vault_path, vault_subdir=vault_subdir, clippings_path=clippings_path)
+        mode = self._config_data.get("mode") or "clippings"
+        if mode not in {"clippings", "kindle_cloud"}:
+            mode = "clippings"
+
+        kindle_email = self._config_data.get("kindle_cloud_email", "")
+        kindle_region = self._config_data.get("kindle_cloud_region", "us")
+        cookie_value = self._config_data.get("kindle_cloud_cookie")
+        kindle_cookie = None
+        if cookie_value:
+            kindle_cookie = Path(cookie_value).expanduser()
+
+        state = AppState(
+            vault_root=vault_path,
+            vault_subdir=vault_subdir,
+            mode=mode,
+            clippings_path=clippings_path,
+            kindle_cloud_email=kindle_email,
+            kindle_cloud_region=kindle_region,
+            kindle_cloud_cookie=kindle_cookie,
+        )
         self._save_config(state)
         return state
 
@@ -163,19 +198,27 @@ class HighlightSyncApp:
         subdir_entry.bind("<FocusOut>", lambda _event: self._update_subdir())
         ttk.Button(subdir_frame, text="Save", command=self._update_subdir).grid(row=0, column=1)
 
-        # Clippings selection and drag area
-        ttk.Label(main_frame, text="My Clippings file:").grid(row=2, column=0, sticky="nw", pady=(10, 6))
-        clippings_frame = ttk.Frame(main_frame)
-        clippings_frame.grid(row=2, column=1, sticky="ew", pady=(10, 6))
-        clippings_frame.columnconfigure(0, weight=1)
+        # Source selection notebook
+        self._notebook = ttk.Notebook(main_frame)
+        self._notebook.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(12, 0))
+        self._notebook.bind("<<NotebookTabChanged>>", self._handle_tab_change)
 
+        # Clippings tab
+        self._clippings_container = ttk.Frame(self._notebook, padding=12)
+        self._clippings_container.columnconfigure(1, weight=1)
+        self._notebook.add(self._clippings_container, text="My Clippings.txt")
+
+        ttk.Label(self._clippings_container, text="Selected file:").grid(row=0, column=0, sticky="w")
+        clippings_frame = ttk.Frame(self._clippings_container)
+        clippings_frame.grid(row=0, column=1, sticky="ew")
+        clippings_frame.columnconfigure(0, weight=1)
         ttk.Label(clippings_frame, textvariable=self._clippings_var, anchor="w").grid(
             row=0, column=0, sticky="ew", padx=(0, 8)
         )
         ttk.Button(clippings_frame, text="Browse…", command=self._choose_clippings).grid(row=0, column=1)
 
         self._drag_area = ttk.Frame(
-            clippings_frame,
+            self._clippings_container,
             padding=16,
             relief="ridge",
         )
@@ -190,6 +233,50 @@ class HighlightSyncApp:
             padding=8,
         ).grid(row=0, column=0, sticky="nsew")
 
+        # Kindle Cloud tab
+        self._kindle_container = ttk.Frame(self._notebook, padding=12)
+        self._kindle_container.columnconfigure(1, weight=1)
+        self._notebook.add(self._kindle_container, text="Kindle Cloud")
+
+        ttk.Label(self._kindle_container, text="Account email:").grid(row=0, column=0, sticky="w")
+        email_entry = ttk.Entry(self._kindle_container, textvariable=self._kindle_email_var)
+        email_entry.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        email_entry.bind("<FocusOut>", lambda _event: self._update_kindle_settings())
+
+        ttk.Label(self._kindle_container, text="Region:").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        region_combo = ttk.Combobox(
+            self._kindle_container,
+            textvariable=self._kindle_region_var,
+            values=("us", "uk", "de", "fr", "jp", "ca", "au", "in"),
+            state="readonly",
+        )
+        region_combo.grid(row=1, column=1, sticky="w", padx=(0, 8), pady=(8, 0))
+        region_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_kindle_settings())
+
+        ttk.Label(self._kindle_container, text="Session cookie file:").grid(
+            row=2, column=0, sticky="nw", pady=(8, 0)
+        )
+        cookie_frame = ttk.Frame(self._kindle_container)
+        cookie_frame.grid(row=2, column=1, sticky="ew", pady=(8, 0))
+        cookie_frame.columnconfigure(0, weight=1)
+        ttk.Label(cookie_frame, textvariable=self._kindle_cookie_var, anchor="w").grid(
+            row=0, column=0, sticky="ew", padx=(0, 8)
+        )
+        ttk.Button(cookie_frame, text="Browse…", command=self._choose_kindle_cookie).grid(
+            row=0, column=1
+        )
+        ttk.Button(cookie_frame, text="Clear", command=self._clear_kindle_cookie).grid(
+            row=0, column=2, padx=(8, 0)
+        )
+
+        ttk.Label(
+            self._kindle_container,
+            text="Export cookies after logging in to read.amazon.* and select the 'session-id'"
+            " cookie used for authentication.",
+            wraplength=420,
+            justify="left",
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(8, 0))
+
         # Status output
         ttk.Label(main_frame, text="Sync output:").grid(row=3, column=0, sticky="nw", pady=(16, 6))
         self._output = scrolledtext.ScrolledText(main_frame, height=10, state="disabled", wrap="word")
@@ -201,7 +288,14 @@ class HighlightSyncApp:
         self._sync_button = ttk.Button(button_frame, text="Sync highlights", command=self._run_sync)
         self._sync_button.grid(row=0, column=1, padx=(8, 0))
 
+        main_frame.rowconfigure(2, weight=0)
         main_frame.rowconfigure(3, weight=1)
+
+        # Ensure the correct tab is selected based on saved state
+        if self.state.mode == "kindle_cloud":
+            self._notebook.select(self._kindle_container)
+        else:
+            self._notebook.select(self._clippings_container)
 
     # ------------------------------------------------------------------
     # UI callbacks
@@ -222,6 +316,15 @@ class HighlightSyncApp:
         self.state.vault_subdir = value
         self._save_config(self.state)
 
+    def _handle_tab_change(self, event: tk.Event[tk.Misc]) -> None:
+        widget = event.widget
+        index = widget.index(widget.select())
+        mode = "clippings" if index == 0 else "kindle_cloud"
+        self._mode_var.set(mode)
+        self.state.mode = mode
+        self._save_config(self.state)
+        self._update_drag_hint()
+
     def _choose_clippings(self) -> None:
         selected = filedialog.askopenfilename(
             title="Select My Clippings.txt",
@@ -239,19 +342,70 @@ class HighlightSyncApp:
         self._save_config(self.state)
         self._log(f"Clippings file set to {path}.")
 
-    def _run_sync(self) -> None:
-        if not self.state.clippings_path:
-            messagebox.showerror("Clippings required", "Please provide a My Clippings.txt file to continue.")
-            return
+    def _update_kindle_settings(self) -> None:
+        self.state.kindle_cloud_email = self._kindle_email_var.get().strip()
+        region = self._kindle_region_var.get().strip().lower() or "us"
+        self.state.kindle_cloud_region = region
+        self._kindle_region_var.set(region)
+        self._save_config(self.state)
 
+    def _choose_kindle_cookie(self) -> None:
+        selected = filedialog.askopenfilename(
+            title="Select Kindle Cloud cookie export",
+            filetypes=[("Cookie files", "*.txt *.json"), ("All files", "*.*")],
+        )
+        if selected:
+            self._set_kindle_cookie_path(Path(selected))
+
+    def _clear_kindle_cookie(self) -> None:
+        self.state.kindle_cloud_cookie = None
+        self._kindle_cookie_var.set(self._format_path(None))
+        self._save_config(self.state)
+
+    def _set_kindle_cookie_path(self, path: Path) -> None:
+        if not path.exists():
+            messagebox.showerror("File not found", f"{path} does not exist.")
+            return
+        self.state.kindle_cloud_cookie = path
+        self._kindle_cookie_var.set(self._format_path(path))
+        self._save_config(self.state)
+        self._log(f"Kindle Cloud cookie file set to {path}.")
+
+    def _run_sync(self) -> None:
         args = [
-            "--clippings",
-            str(self.state.clippings_path),
             "--vault",
             str(self.state.vault_root),
             "--subdir",
             self.state.vault_subdir,
         ]
+
+        if self.state.mode == "kindle_cloud":
+            cookie_path = self.state.kindle_cloud_cookie
+            if cookie_path is None:
+                messagebox.showerror(
+                    "Cookie required",
+                    "Please select a Kindle Cloud session cookie file before syncing.",
+                )
+                return
+            if not cookie_path.exists():
+                messagebox.showerror(
+                    "Cookie missing",
+                    f"The selected Kindle Cloud cookie file ({cookie_path}) no longer exists.",
+                )
+                return
+            args.append("--kindle-cloud")
+            if self.state.kindle_cloud_email:
+                args.extend(["--kindle-email", self.state.kindle_cloud_email])
+            if self.state.kindle_cloud_region:
+                args.extend(["--kindle-region", self.state.kindle_cloud_region])
+            args.extend(["--kindle-cookie", str(cookie_path)])
+        else:
+            if not self.state.clippings_path:
+                messagebox.showerror(
+                    "Clippings required", "Please provide a My Clippings.txt file to continue."
+                )
+                return
+            args.extend(["--clippings", str(self.state.clippings_path)])
 
         self._sync_button.state(["disabled"])
         self._log("Starting sync…")
@@ -284,12 +438,17 @@ class HighlightSyncApp:
     # Drag and drop helpers
     # ------------------------------------------------------------------
     def _update_drag_hint(self) -> None:
+        if self.state.mode != "clippings":
+            self._drag_hint.set("Kindle Cloud mode uses your saved cookie file; no upload needed.")
+            return
         if self._enable_drag_and_drop():
             self._drag_hint.set("Drag and drop your My Clippings.txt file here")
         else:
             self._drag_hint.set("Drag-and-drop is unavailable. Use the Browse button instead.")
 
     def _enable_drag_and_drop(self) -> bool:
+        if self.state.mode != "clippings":
+            return False
         if hasattr(self._drag_area, "drop_target_register"):
             try:
                 self._drag_area.drop_target_register("DND_Files")

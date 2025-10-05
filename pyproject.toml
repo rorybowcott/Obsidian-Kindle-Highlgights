@@ -9,5 +9,8 @@ description = "Sync Kindle highlights into an Obsidian vault."
 requires-python = ">=3.10"
 dependencies = []
 
+[project.optional-dependencies]
+http = ["requests>=2.31"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
