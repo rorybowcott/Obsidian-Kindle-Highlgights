@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterable, List
 
 from highlights.config import SyncConfig, load_config
+from highlights.fetchers import KindleCloudFetchError, KindleCloudFetcher
 from highlights.models import Highlight
 from highlights.parsers import KindleCsvParser, MyClippingsParser
 from highlights.storage import BookFile, append_highlights_to_file, build_book_filename
@@ -27,6 +28,23 @@ def _parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Run without writing files")
     parser.add_argument(
         "--list", action="store_true", dest="list_only", help="List parsed highlights without writing"
+    )
+    parser.add_argument(
+        "--kindle-cloud",
+        action="store_true",
+        help="Fetch highlights from the Kindle Cloud notebook instead of local files",
+    )
+    parser.add_argument("--kindle-email", help="Amazon/Kindle account email for reference", default=None)
+    parser.add_argument(
+        "--kindle-region",
+        help="Kindle Cloud region code (us, uk, de, fr, jp, ca, au, in)",
+        default=None,
+    )
+    parser.add_argument(
+        "--kindle-cookie",
+        type=Path,
+        help="Path to a session cookie exported from the Kindle Cloud website",
+        default=None,
     )
     return parser.parse_args(argv)
 
@@ -52,6 +70,14 @@ def _combine_config(args: argparse.Namespace) -> SyncConfig:
         config.highlight_heading_template = args.heading_template
     if args.dry_run:
         config.dry_run = True
+    if args.kindle_cloud:
+        config.kindle_cloud_enabled = True
+    if args.kindle_email is not None:
+        config.kindle_cloud_email = args.kindle_email
+    if args.kindle_region is not None:
+        config.kindle_cloud_region = args.kindle_region
+    if args.kindle_cookie is not None:
+        config.kindle_cloud_cookie = args.kindle_cookie
     return config
 
 
@@ -71,6 +97,16 @@ def _collect_highlights(config: SyncConfig) -> List[Highlight]:
             highlights.extend(parser.parse(path))
         else:
             print(f"Warning: {path} not found; skipping Kindle CSV source.")
+    if config.kindle_cloud_enabled:
+        try:
+            fetcher = KindleCloudFetcher(
+                email=config.kindle_cloud_email,
+                region=config.kindle_cloud_region,
+                cookie_path=config.kindle_cloud_cookie,
+            )
+            highlights.extend(list(fetcher.iter_highlights()))
+        except KindleCloudFetchError as exc:
+            print(f"Error fetching Kindle Cloud highlights: {exc}")
     return highlights
 
 

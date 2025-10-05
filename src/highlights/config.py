@@ -17,6 +17,10 @@ class SyncConfig:
     vault_subdir: str = "Kindle Highlights"
     dry_run: bool = False
     highlight_heading_template: str = "Location {location}"
+    kindle_cloud_enabled: bool = False
+    kindle_cloud_email: Optional[str] = None
+    kindle_cloud_region: str = "us"
+    kindle_cloud_cookie: Optional[Path] = None
 
     @classmethod
     def from_mapping(cls, data: Dict[str, Any]) -> "SyncConfig":
@@ -33,6 +37,14 @@ class SyncConfig:
             kwargs["dry_run"] = bool(data["dry_run"])
         if "highlight_heading_template" in data and data["highlight_heading_template"]:
             kwargs["highlight_heading_template"] = str(data["highlight_heading_template"])
+        if "kindle_cloud_enabled" in data:
+            kwargs["kindle_cloud_enabled"] = bool(data["kindle_cloud_enabled"])
+        if "kindle_cloud_email" in data and data["kindle_cloud_email"]:
+            kwargs["kindle_cloud_email"] = str(data["kindle_cloud_email"])
+        if "kindle_cloud_region" in data and data["kindle_cloud_region"]:
+            kwargs["kindle_cloud_region"] = str(data["kindle_cloud_region"])
+        if "kindle_cloud_cookie" in data and data["kindle_cloud_cookie"]:
+            kwargs["kindle_cloud_cookie"] = Path(data["kindle_cloud_cookie"])
         return cls(**kwargs)
 
 

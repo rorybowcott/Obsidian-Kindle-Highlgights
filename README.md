@@ -4,7 +4,7 @@ A small utility for ingesting Kindle annotations and exporting them into Markdow
 
 ## Features
 
-- Parse highlights from the standard Kindle `My Clippings.txt` file and Kindle Export CSV downloads.
+- Parse highlights from the standard Kindle `My Clippings.txt` file, Kindle Export CSV downloads and the Kindle Cloud notebook API.
 - Normalise entries into a structured model that includes title, author, location, highlight text and optional notes.
 - Write Markdown files per book with YAML-style front matter, safe filenames and configurable heading templates.
 - Merge new highlights by tracking stored highlight hashes to avoid duplicates.
@@ -13,6 +13,7 @@ A small utility for ingesting Kindle annotations and exporting them into Markdow
 ## Requirements
 
 - Python 3.10 or newer.
+- [`requests`](https://requests.readthedocs.io/) if you plan to fetch highlights from the Kindle Cloud (install via the optional `http` extra).
 
 ## Installation
 
@@ -20,25 +21,31 @@ Clone the repository and install the project in editable mode (optional but reco
 
 ```bash
 pip install -e .
+# Or include the Kindle Cloud extra
+pip install -e .[http]
 ```
 
-> The project does not require third-party dependencies; installing in editable mode simply makes the `src` directory importable.
+> Installing the optional `http` extra pulls in `requests`, which is required for Kindle Cloud synchronisation.
 
 ## Usage
 
 ### Graphical interface
 
-Launch the Tkinter-based interface to configure your vault location and drag-and-drop
-your `My Clippings.txt` file:
+Launch the Tkinter-based interface to configure your vault location and manage either
+local files or Kindle Cloud synchronisation:
 
 ```bash
 python -m highlights.gui
 ```
 
 On first launch you will be prompted to choose your Obsidian vault and the folder
-inside the vault where highlight files should be stored. You can then drag and drop
-your `My Clippings.txt` export (or use the *Browse* button) and trigger the sync
-directly from the app.
+inside the vault where highlight files should be stored. The *Sources* notebook
+contains two tabs:
+
+- **My Clippings.txt** – drag and drop your `My Clippings.txt` export (or use the *Browse* button) and trigger the sync directly from the app.
+- **Kindle Cloud** – provide your account email (for reference) and point the app at a cookie export that contains your authenticated Kindle session (for example `session-id`). Cookies can be exported from your browser using extensions such as [EditThisCookie](https://chrome.google.com/webstore/detail/editthiscookie/fngmhnnpilhplaeedifhccceomclgfbg).
+
+Settings are stored in `~/.obsidian_kindle_highlights/config.json` so future launches reuse your selections.
 
 ### Command line
 
@@ -60,6 +67,10 @@ python -m sync_highlights --clippings "~/Documents/My Clippings.txt" --vault "/p
 | `--heading-template` | Template for highlight headings. Available placeholders: `{title}`, `{author}`, `{location}`. |
 | `--dry-run` | Parse highlights and report changes without writing files. |
 | `--list` | Alias for `--dry-run` that only lists the results. |
+| `--kindle-cloud` | Fetch highlights from the Kindle Cloud notebook API. |
+| `--kindle-email` | Optional account email used for Kindle Cloud fetches (for identification only). |
+| `--kindle-region` | Kindle Cloud region code (e.g. `us`, `uk`, `de`). |
+| `--kindle-cookie` | Path to a cookie export containing Kindle Cloud authentication. |
 
 ### Configuration file
 
@@ -71,7 +82,11 @@ Instead of passing paths via CLI you can keep them in a JSON file. Example `conf
   "kindle_export_csv": "~/Downloads/kindle.csv",
   "vault_root": "/Users/alex/Obsidian/My Vault",
   "vault_subdir": "Kindle Highlights",
-  "highlight_heading_template": "Location {location}"
+  "highlight_heading_template": "Location {location}",
+  "kindle_cloud_enabled": true,
+  "kindle_cloud_email": "user@example.com",
+  "kindle_cloud_region": "us",
+  "kindle_cloud_cookie": "~/Downloads/kindle_cookies.txt"
 }
 ```
 
@@ -107,7 +122,7 @@ Dry-run inspects existing Markdown files, reports how many new highlights would 
 
 ## Tests
 
-Run the lightweight tests to confirm the parsers behave as expected:
+Run the lightweight tests to confirm the parsers and HTTP fetcher behave as expected:
 
 ```bash
 python -m pytest
