@@ -67,7 +67,7 @@ python -m sync_highlights --config config.json
 
 ### Markdown output
 
-Each book gets its own Markdown file (e.g. `Kindle Highlights/The_Example_Book.md`) with front matter containing the title, author and stored highlight hashes. Highlights are rendered as sections:
+Each book gets its own Markdown file (e.g. `Kindle Highlights/My Book Title.md`) with front matter containing the title, author and stored highlight hashes. Highlights are rendered as sections:
 
 ```markdown
 ### Location 120-122
