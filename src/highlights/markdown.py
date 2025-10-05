@@ -83,13 +83,16 @@ def parse_front_matter(text: str) -> tuple[dict, str]:
     return metadata, remainder
 
 
+def _format_location_text(location: Optional[str]) -> str:
+    if not location:
+        return "Location unknown"
+    return f"Location {location}"
+
+
 def serialise_highlight(highlight: Highlight) -> Dict[str, Any]:
     return {
-        "highlight_id": highlight.highlight_id,
-        "location": highlight.location,
         "text": highlight.text,
-        "note": highlight.note,
-        "source": highlight.source,
+        "location_text": _format_location_text(highlight.location),
     }
 
 
