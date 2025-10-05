@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from highlights.markdown import parse_front_matter
 from highlights.models import Highlight
 from highlights.storage import BookFile, append_highlights_to_file, build_book_filename
 
@@ -34,4 +35,18 @@ def test_append_highlights_deduplicates(tmp_path: Path) -> None:
     assert total_again == 2
 
     content = book_path.read_text(encoding="utf-8")
-    assert content.count("highlight-id") == 2
+    metadata, remainder = parse_front_matter(content)
+    assert remainder == ""
+
+    assert metadata["title"] == "The Example Book"
+    assert metadata["author"] == "Jane Doe"
+    assert metadata["highlight_ids"] == [first_highlight.highlight_id, second_highlight.highlight_id]
+
+    highlights = metadata["highlights"]
+    assert isinstance(highlights, list)
+    assert len(highlights) == 2
+    assert highlights[0]["id"] == first_highlight.highlight_id
+    assert highlights[0]["location"] == first_highlight.location
+    assert highlights[0]["text"] == first_highlight.text
+    assert highlights[0]["note"] == first_highlight.note
+    assert highlights[1]["location"] == second_highlight.location

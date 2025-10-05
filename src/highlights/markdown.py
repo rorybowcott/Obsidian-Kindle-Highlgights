@@ -1,9 +1,10 @@
 """Markdown rendering for highlights."""
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 from .models import Highlight
 
@@ -20,21 +21,52 @@ def sanitise_filename(value: str) -> str:
 
 
 def format_front_matter(metadata: dict) -> str:
+    def format_scalar(value: Any) -> str:
+        return json.dumps(value)
+
     lines: List[str] = ["---"]
-    for key, value in metadata.items():
-        if isinstance(value, list):
-            lines.append(f"{key}:")
-            for item in value:
-                lines.append(f"  - {item}")
-        elif value is None:
-            lines.append(f"{key}:")
-        else:
-            if isinstance(value, str):
-                safe_value = value.replace("\n", " ").replace('"', '\\"')
-                safe_value = f'"{safe_value}"'
+
+    def emit(key: str, value: Any, indent: int, is_list_item: bool = False) -> None:
+        prefix = "  " * indent
+        if is_list_item:
+            if isinstance(value, dict):
+                if not value:
+                    lines.append(f"{prefix}- {{}}")
+                else:
+                    lines.append(f"{prefix}-")
+                    for subkey, subvalue in value.items():
+                        emit(subkey, subvalue, indent + 1, is_list_item=False)
+            elif isinstance(value, list):
+                if not value:
+                    lines.append(f"{prefix}- []")
+                else:
+                    lines.append(f"{prefix}-")
+                    for item in value:
+                        emit("", item, indent + 1, is_list_item=True)
             else:
-                safe_value = str(value).replace("\n", " ")
-            lines.append(f"{key}: {safe_value}")
+                lines.append(f"{prefix}- {format_scalar(value)}")
+            return
+
+        if isinstance(value, dict):
+            if not value:
+                lines.append(f"{prefix}{key}: {{}}")
+            else:
+                lines.append(f"{prefix}{key}:")
+                for subkey, subvalue in value.items():
+                    emit(subkey, subvalue, indent + 1, is_list_item=False)
+        elif isinstance(value, list):
+            if not value:
+                lines.append(f"{prefix}{key}: []")
+            else:
+                lines.append(f"{prefix}{key}:")
+                for item in value:
+                    emit("", item, indent + 1, is_list_item=True)
+        else:
+            lines.append(f"{prefix}{key}: {format_scalar(value)}")
+
+    for key, value in metadata.items():
+        emit(key, value, 0, is_list_item=False)
+
     lines.append("---")
     return "\n".join(lines) + "\n"
 
@@ -50,27 +82,95 @@ def parse_front_matter(text: str) -> tuple[dict, str]:
     if remainder.startswith("\n"):
         remainder = remainder[1:]
 
-    metadata: dict = {}
-    current_key: Optional[str] = None
-    for raw_line in fm_text.splitlines():
-        line = raw_line.rstrip()
-        if not line:
+    metadata: dict[str, Any] = {}
+    lines = fm_text.splitlines()
+
+    def parse_scalar(value: str) -> Any:
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+
+    stack: List[dict[str, Any]] = [
+        {"indent": -1, "container": metadata, "parent": None, "key": None},
+    ]
+
+    for raw_line in lines:
+        if not raw_line.strip():
             continue
-        if line.startswith("  - ") and current_key:
-            metadata.setdefault(current_key, []).append(line[4:].strip())
-            continue
-        if ":" in line:
-            key, value = line.split(":", 1)
-            key = key.strip()
-            value = value.strip()
-            if not value:
-                metadata[key] = []
-                current_key = key
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        content = raw_line[indent:]
+
+        while len(stack) > 1 and indent <= stack[-1]["indent"]:
+            stack.pop()
+
+        frame = stack[-1]
+        container = frame["container"]
+
+        if frame["container"] is None:
+            if content.startswith("-"):
+                container = []
             else:
-                if value.startswith('"') and value.endswith('"'):
-                    value = value[1:-1].replace('\\"', '"')
-                metadata[key] = value
-                current_key = None
+                container = {}
+            frame["container"] = container
+            parent = frame["parent"]
+            key = frame["key"]
+            if isinstance(parent, list) and isinstance(key, int):
+                parent[key] = container
+            elif isinstance(parent, dict) and isinstance(key, str):
+                parent[key] = container
+
+        container = frame["container"]
+
+        if content.startswith("-"):
+            if not isinstance(container, list):
+                new_list: list[Any] = []
+                frame["container"] = new_list
+                parent = frame["parent"]
+                key = frame["key"]
+                if isinstance(parent, list) and isinstance(key, int):
+                    parent[key] = new_list
+                elif isinstance(parent, dict) and isinstance(key, str):
+                    parent[key] = new_list
+                container = new_list
+
+            item_value = content[1:].strip()
+            if not item_value:
+                index = len(container)
+                container.append(None)
+                stack.append(
+                    {"indent": indent, "container": None, "parent": container, "key": index}
+                )
+            elif item_value == "{}":
+                container.append({})
+            elif item_value == "[]":
+                container.append([])
+            else:
+                container.append(parse_scalar(item_value))
+            continue
+
+        if not isinstance(container, dict):
+            # Unexpected structure; skip gracefully.
+            continue
+
+        if ":" not in content:
+            continue
+
+        key, value = content.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+
+        if not value:
+            stack.append(
+                {"indent": indent, "container": None, "parent": container, "key": key}
+            )
+        elif value == "{}":
+            container[key] = {}
+        elif value == "[]":
+            container[key] = []
+        else:
+            container[key] = parse_scalar(value)
+
     return metadata, remainder
 
 

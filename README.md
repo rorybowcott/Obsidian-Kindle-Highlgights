@@ -67,17 +67,25 @@ python -m sync_highlights --config config.json
 
 ### Markdown output
 
-Each book gets its own Markdown file (e.g. `Kindle Highlights/The_Example_Book.md`) with front matter containing the title, author and stored highlight hashes. Highlights are rendered as sections:
+Each book gets its own Markdown file (e.g. `Kindle Highlights/The_Example_Book.md`) that now stores all data inside the front matter. In addition to title, author and stored highlight hashes, every highlight is persisted as structured metadata so it can be round-tripped without relying on rendered Markdown:
 
 ```markdown
-### Location 120-122
-> The highlighted text
-
-**Note:** Optional note text
-<!-- highlight-id: 123abc... -->
+---
+title: "The Example Book"
+author: "Jane Doe"
+updated: "2024-01-01T12:00:00+00:00"
+highlight_ids:
+  - "123abc..."
+highlights:
+  -
+    id: "123abc..."
+    location: "Location 120-122"
+    text: "The highlighted text"
+    note: "Optional note text"
+---
 ```
 
-The stored `highlight_ids` in front matter are used to avoid adding the same passage multiple times.
+When new highlights are appended the tool only updates this metadata block, ensuring that no additional Markdown body content is written. The stored `highlight_ids` (and the highlight metadata) continue to be used to avoid adding the same passage multiple times.
 
 ### Dry-run and validation
 

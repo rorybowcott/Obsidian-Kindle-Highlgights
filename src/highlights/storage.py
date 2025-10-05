@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Sequence, Set, Tuple
 
-from .markdown import format_front_matter, parse_front_matter, render_highlight, sanitise_filename
+from .markdown import format_front_matter, parse_front_matter, sanitise_filename
 from .models import Highlight
 
 
@@ -42,44 +42,45 @@ def merge_highlights(existing_ids: Set[str], highlights: Sequence[Highlight]) ->
 def append_highlights_to_file(
     book_file: BookFile, highlights: Sequence[Highlight], heading_template: str = "Location {location}"
 ) -> Tuple[int, int]:
-    metadata, existing_body = book_file.read()
-    existing_ids_list: List[str] = []
+    _ = heading_template  # Maintained for backwards compatibility; body content is no longer written.
+    metadata, _existing_body = book_file.read()
+
+    existing_highlight_entries: List[dict] = []
     if metadata:
-        ids = metadata.get("highlight_ids")
-        if isinstance(ids, list):
-            existing_ids_list = [str(value) for value in ids]
+        stored_highlights = metadata.get("highlights")
+        if isinstance(stored_highlights, list):
+            for item in stored_highlights:
+                if isinstance(item, dict):
+                    existing_highlight_entries.append(item)
+
+    existing_ids_list = [str(entry.get("id")) for entry in existing_highlight_entries if entry.get("id")]
     existing_ids: Set[str] = set(existing_ids_list)
 
     new_highlights = merge_highlights(existing_ids, highlights)
     if not new_highlights:
         return 0, len(existing_ids)
 
-    updated_ids = existing_ids_list + [h.highlight_id for h in new_highlights]
-    updated_ids = list(dict.fromkeys(updated_ids))
+    def highlight_to_metadata(highlight: Highlight) -> dict:
+        return {
+            "id": highlight.highlight_id,
+            "location": highlight.location,
+            "text": highlight.text,
+            "note": highlight.note,
+        }
+
+    new_entries = [highlight_to_metadata(h) for h in new_highlights]
+    updated_highlights = existing_highlight_entries + new_entries
 
     metadata = dict(metadata)
     metadata.update(
         {
             "title": metadata.get("title") or book_file.title,
             "author": metadata.get("author") or (book_file.author or "Unknown"),
-            "highlight_ids": updated_ids,
+            "highlight_ids": [entry["id"] for entry in updated_highlights],
+            "highlights": updated_highlights,
             "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
     )
 
-    if not existing_body:
-        header_lines = [f"# {book_file.title}"]
-        if book_file.author:
-            header_lines.append("")
-            header_lines.append(f"_by {book_file.author}_")
-        header_lines.append("")
-        existing_body = "\n".join(header_lines)
-
-    body_parts = [existing_body.rstrip("\n"), ""]
-    for highlight in new_highlights:
-        body_parts.append(render_highlight(highlight, heading_template=heading_template))
-    body_parts.append("")
-    new_body = "\n".join(body_parts)
-
-    book_file.write(metadata, new_body)
-    return len(new_highlights), len(updated_ids)
+    book_file.write(metadata, "")
+    return len(new_highlights), len(updated_highlights)
