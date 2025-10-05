@@ -13,9 +13,8 @@ SAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._\- ]+")
 def sanitise_filename(value: str) -> str:
     """Return a filesystem-safe filename derived from ``value``."""
 
-    safe = SAFE_FILENAME_CHARS.sub(" ", value).strip()
-    safe = re.sub(r"\s+", " ", safe)
-    safe = safe.replace(" ", "_")
+    safe = SAFE_FILENAME_CHARS.sub(" ", value)
+    safe = re.sub(r"\s+", " ", safe).strip()
     return safe or "untitled"
 
 

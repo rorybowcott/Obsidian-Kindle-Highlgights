@@ -35,3 +35,10 @@ def test_append_highlights_deduplicates(tmp_path: Path) -> None:
 
     content = book_path.read_text(encoding="utf-8")
     assert content.count("highlight-id") == 2
+
+
+def test_build_book_filename_preserves_spaces(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    path = build_book_filename(vault, "Kindle Highlights", "My Book Title")
+
+    assert path == vault / "Kindle Highlights" / "My Book Title.md"
