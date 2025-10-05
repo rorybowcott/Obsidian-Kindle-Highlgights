@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Sequence, Set, Tuple
 
-from .markdown import format_front_matter, parse_front_matter, render_highlight, sanitise_filename
+from .markdown import (
+    format_front_matter,
+    parse_front_matter,
+    sanitise_filename,
+    serialise_highlight,
+)
 from .models import Highlight
 
 
@@ -42,12 +47,23 @@ def merge_highlights(existing_ids: Set[str], highlights: Sequence[Highlight]) ->
 def append_highlights_to_file(
     book_file: BookFile, highlights: Sequence[Highlight], heading_template: str = "Location {location}"
 ) -> Tuple[int, int]:
+    # ``heading_template`` is retained for API compatibility but no longer used for rendering.
+    _ = heading_template
     metadata, existing_body = book_file.read()
     existing_ids_list: List[str] = []
+    existing_highlight_entries: List[dict] = []
     if metadata:
         ids = metadata.get("highlight_ids")
         if isinstance(ids, list):
             existing_ids_list = [str(value) for value in ids]
+        highlights_meta = metadata.get("highlights")
+        if isinstance(highlights_meta, list):
+            existing_highlight_entries = list(highlights_meta)
+            if not existing_ids_list:
+                for entry in existing_highlight_entries:
+                    highlight_id = entry.get("highlight_id")
+                    if highlight_id is not None:
+                        existing_ids_list.append(str(highlight_id))
     existing_ids: Set[str] = set(existing_ids_list)
 
     new_highlights = merge_highlights(existing_ids, highlights)
@@ -67,19 +83,8 @@ def append_highlights_to_file(
         }
     )
 
-    if not existing_body:
-        header_lines = [f"# {book_file.title}"]
-        if book_file.author:
-            header_lines.append("")
-            header_lines.append(f"_by {book_file.author}_")
-        header_lines.append("")
-        existing_body = "\n".join(header_lines)
+    serialized_highlights = [serialise_highlight(h) for h in new_highlights]
+    metadata["highlights"] = existing_highlight_entries + serialized_highlights
 
-    body_parts = [existing_body.rstrip("\n"), ""]
-    for highlight in new_highlights:
-        body_parts.append(render_highlight(highlight, heading_template=heading_template))
-    body_parts.append("")
-    new_body = "\n".join(body_parts)
-
-    book_file.write(metadata, new_body)
+    book_file.write(metadata, existing_body)
     return len(new_highlights), len(updated_ids)

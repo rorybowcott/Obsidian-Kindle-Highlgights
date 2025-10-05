@@ -33,8 +33,12 @@ def test_append_highlights_deduplicates(tmp_path: Path) -> None:
     assert added_again == 1
     assert total_again == 2
 
-    content = book_path.read_text(encoding="utf-8")
-    assert content.count("highlight-id") == 2
+    metadata, body = book_file.read()
+    assert isinstance(metadata.get("highlights"), list)
+    assert len(metadata["highlights"]) == 2
+    stored_ids = {entry["highlight_id"] for entry in metadata["highlights"]}
+    assert stored_ids == {first_highlight.highlight_id, second_highlight.highlight_id}
+    assert body.strip() == ""
 
 
 def test_build_book_filename_preserves_spaces(tmp_path: Path) -> None:
