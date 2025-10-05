@@ -22,7 +22,7 @@ class MyClippingsParser(HighlightParser):
 
     SEPARATOR = "=========="
     META_PATTERN = re.compile(
-        r"^-\s*Your\s+(?P<entry_type>Highlight|Note)\s+on\s+"  # entry type
+        r"^-\s*(?:Your\s+)?(?P<entry_type>Highlight|Note)\s+on\s+"  # entry type
         r"(?:(?:Location|Page)\s+(?P<location>[\d\-]+))?.*"  # location (optional)
     )
 
