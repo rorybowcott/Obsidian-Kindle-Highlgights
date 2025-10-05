@@ -1,9 +1,10 @@
 """Markdown rendering for highlights."""
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
-from typing import List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from .models import Highlight
 
@@ -21,10 +22,9 @@ def sanitise_filename(value: str) -> str:
 def format_front_matter(metadata: dict) -> str:
     lines: List[str] = ["---"]
     for key, value in metadata.items():
-        if isinstance(value, list):
-            lines.append(f"{key}:")
-            for item in value:
-                lines.append(f"  - {item}")
+        if isinstance(value, (list, dict)):
+            json_value = json.dumps(value, ensure_ascii=False)
+            lines.append(f"{key}: {json_value}")
         elif value is None:
             lines.append(f"{key}:")
         else:
@@ -56,49 +56,41 @@ def parse_front_matter(text: str) -> tuple[dict, str]:
         if not line:
             continue
         if line.startswith("  - ") and current_key:
-            metadata.setdefault(current_key, []).append(line[4:].strip())
+            existing = metadata.get(current_key)
+            if not isinstance(existing, list):
+                existing = []
+            existing.append(line[4:].strip())
+            metadata[current_key] = existing
             continue
         if ":" in line:
             key, value = line.split(":", 1)
             key = key.strip()
             value = value.strip()
             if not value:
-                metadata[key] = []
+                metadata[key] = None
                 current_key = key
             else:
                 if value.startswith('"') and value.endswith('"'):
                     value = value[1:-1].replace('\\"', '"')
-                metadata[key] = value
+                    parsed_value: Any = value
+                else:
+                    try:
+                        parsed_value = json.loads(value)
+                    except json.JSONDecodeError:
+                        parsed_value = value
+                metadata[key] = parsed_value
                 current_key = None
     return metadata, remainder
 
 
-def render_highlight(highlight: Highlight, heading_template: str = "Location {location}") -> str:
-    lines: List[str] = []
-    context = {
-        "title": highlight.book_title,
-        "author": highlight.author or "",
-        "location": highlight.location or "unknown",
+def serialise_highlight(highlight: Highlight) -> Dict[str, Any]:
+    return {
+        "highlight_id": highlight.highlight_id,
+        "location": highlight.location,
+        "text": highlight.text,
+        "note": highlight.note,
+        "source": highlight.source,
     }
-    try:
-        heading_value = heading_template.format(**context)
-    except (KeyError, ValueError):
-        heading_value = f"Location {context['location']}"
-    location_text = heading_value or f"Location {context['location']}"
-    lines.append(f"### {location_text}")
-    lines.append("")
-    if highlight.text:
-        quote = highlight.text.strip().replace("\n", "\n>")
-        lines.append(f"> {quote}")
-    else:
-        lines.append("> _No highlight text available._")
-    if highlight.note:
-        lines.append("")
-        lines.append(f"**Note:** {highlight.note.strip()}")
-    lines.append("")
-    lines.append(f"<!-- highlight-id: {highlight.highlight_id} -->")
-    lines.append("")
-    return "\n".join(lines)
 
 
 def render_book_document(
@@ -107,19 +99,13 @@ def render_book_document(
     highlights: Sequence[Highlight],
     heading_template: str = "Location {location}",
 ) -> str:
+    _ = heading_template
     metadata = {
         "title": title,
         "author": author or "Unknown",
         "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "highlight_ids": [h.highlight_id for h in highlights],
+        "highlights": [serialise_highlight(h) for h in highlights],
     }
     front_matter = format_front_matter(metadata)
-    heading_lines = [f"# {title}"]
-    if author:
-        heading_lines.append("")
-        heading_lines.append(f"_by {author}_")
-    heading_lines.append("")
-
-    body_parts = [render_highlight(highlight, heading_template=heading_template) for highlight in highlights]
-    body = "\n".join(body_parts)
-    return front_matter + "\n".join(heading_lines) + body + ("\n" if not body.endswith("\n") else "")
+    return front_matter
